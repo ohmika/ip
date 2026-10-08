@@ -1,0 +1,222 @@
+<!DOCTYPE html>
+<html lang="nl">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<title>Mijn IP-gegevens</title>
+<style>
+  :root{
+    --bg:#f3f6f4; --panel:#ffffff; --ink:#14201b; --muted:#5d6b64; --line:#d5dfd9;
+    --accent:#0f6b5c; --warn:#b4531a; --ok:#0f6b5c;
+    --mono: ui-monospace, "SF Mono", Menlo, Consolas, monospace;
+    --sans: system-ui, -apple-system, "Segoe UI", Roboto, sans-serif;
+  }
+  @media (prefers-color-scheme: dark){
+    :root{ --bg:#101714; --panel:#18221e; --ink:#e6efea; --muted:#94a59c; --line:#2a3832; --accent:#4fd1b5; --warn:#f0a066; --ok:#4fd1b5; }
+  }
+  *{box-sizing:border-box}
+  body{margin:0;background:var(--bg);color:var(--ink);font-family:var(--sans);line-height:1.5;padding:24px 16px 48px}
+  main{max-width:760px;margin:0 auto}
+  h1{font-size:1.7rem;margin:0 0 4px}
+  .sub{color:var(--muted);margin:0 0 24px}
+  .addr{display:grid;grid-template-columns:1fr 1fr;gap:12px;margin-bottom:24px}
+  @media(max-width:600px){.addr{grid-template-columns:1fr}}
+  .card{background:var(--panel);border:1px solid var(--line);border-radius:10px;padding:16px}
+  .card h2{font-size:.95rem;margin:0 0 8px;color:var(--muted);font-weight:600}
+  .ip{font-family:var(--mono);font-size:1.15rem;word-break:break-all;min-height:1.7em}
+  .status{font-size:.85rem;margin-top:6px;color:var(--muted)}
+  .status.ok{color:var(--ok)} .status.no{color:var(--warn)}
+  button{font:inherit;cursor:pointer;border:1px solid var(--line);background:transparent;color:var(--ink);border-radius:8px;padding:6px 12px}
+  button:hover{border-color:var(--accent)}
+  button:focus-visible{outline:2px solid var(--accent);outline-offset:2px}
+  .copy{margin-top:10px;font-size:.85rem}
+  section{margin-bottom:24px}
+  section>h2{font-size:1.1rem;margin:0 0 8px}
+  table{width:100%;border-collapse:collapse;background:var(--panel);border:1px solid var(--line);border-radius:10px;overflow:hidden}
+  th,td{text-align:left;padding:9px 14px;border-bottom:1px solid var(--line);vertical-align:top;font-size:.93rem}
+  tr:last-child th,tr:last-child td{border-bottom:0}
+  th{width:38%;color:var(--muted);font-weight:500}
+  td{word-break:break-word}
+  .wrap{overflow-x:auto}
+  .bar{display:flex;gap:12px;align-items:center;flex-wrap:wrap}
+  .note{color:var(--muted);font-size:.85rem}
+</style>
+</head>
+<body>
+<main>
+  <h1>Mijn IP-gegevens</h1>
+  <p class="sub">Dit zie je vanaf het internet, plus wat je browser over je apparaat verraadt.</p>
+
+  <div class="addr">
+    <div class="card">
+      <h2>IPv4-adres</h2>
+      <div class="ip" id="ip4">Laden…</div>
+      <div class="status" id="s4"></div>
+      <button class="copy" data-target="ip4">Kopieer</button>
+    </div>
+    <div class="card">
+      <h2>IPv6-adres</h2>
+      <div class="ip" id="ip6">Laden…</div>
+      <div class="status" id="s6"></div>
+      <button class="copy" data-target="ip6">Kopieer</button>
+    </div>
+  </div>
+
+  <section>
+    <h2>Locatie en provider</h2>
+    <div class="wrap"><table id="geo"><tbody><tr><td>Laden…</td></tr></tbody></table></div>
+    <p class="note">Locatie is een schatting op basis van je IP-adres en kan een stuk afwijken.</p>
+  </section>
+
+  <section>
+    <h2>Browser en apparaat</h2>
+    <div class="wrap"><table id="browser"><tbody></tbody></table></div>
+  </section>
+
+  <section>
+    <h2>Lokaal netwerkadres</h2>
+    <div class="wrap"><table id="local"><tbody><tr><td>Laden…</td></tr></tbody></table></div>
+  </section>
+
+  <div class="bar">
+    <button id="refresh">Vernieuwen</button>
+    <span class="note" id="time"></span>
+  </div>
+</main>
+
+<script>
+const $ = id => document.getElementById(id);
+
+function rows(tableId, data){
+  const tb = $(tableId).querySelector('tbody');
+  tb.innerHTML = '';
+  data.forEach(([k,v])=>{
+    const tr = document.createElement('tr');
+    const th = document.createElement('th'); th.textContent = k;
+    const td = document.createElement('td'); td.textContent = (v===undefined||v===null||v==='') ? 'Onbekend' : v;
+    tr.append(th, td); tb.append(tr);
+  });
+}
+
+async function getJSON(url, ms=6000){
+  const c = new AbortController();
+  const t = setTimeout(()=>c.abort(), ms);
+  try{
+    const r = await fetch(url,{signal:c.signal});
+    if(!r.ok) throw new Error(r.status);
+    return await r.json();
+  } finally { clearTimeout(t); }
+}
+
+async function loadIPs(){
+  $('ip4').textContent = $('ip6').textContent = 'Laden…';
+  $('s4').textContent = $('s6').textContent = '';
+  $('s4').className = $('s6').className = 'status';
+  let first = null;
+
+  const v4 = getJSON('https://api4.ipify.org?format=json').then(d=>{
+    $('ip4').textContent = d.ip; $('s4').textContent = 'Gevonden'; $('s4').className='status ok'; first = first || d.ip;
+  }).catch(()=>{
+    $('ip4').textContent = 'Niet beschikbaar'; $('s4').textContent = 'Geen IPv4-verbinding of geblokkeerd'; $('s4').className='status no';
+  });
+
+  const v6 = getJSON('https://api6.ipify.org?format=json').then(d=>{
+    $('ip6').textContent = d.ip; $('s6').textContent = 'Gevonden'; $('s6').className='status ok'; first = d.ip;
+  }).catch(()=>{
+    $('ip6').textContent = 'Niet beschikbaar'; $('s6').textContent = 'Je verbinding of provider gebruikt geen IPv6'; $('s6').className='status no';
+  });
+
+  await Promise.all([v4, v6]);
+  return $('ip4').textContent.includes('.') ? $('ip4').textContent : (first || null);
+}
+
+async function loadGeo(ip){
+  if(!ip){ rows('geo',[['Status','Geen IP-adres gevonden, dus geen locatiegegevens']]); return; }
+  try{
+    const d = await getJSON('https://ipwho.is/' + encodeURIComponent(ip));
+    if(d.success === false) throw new Error(d.message);
+    rows('geo',[
+      ['Land', [d.country, d.flag && d.flag.emoji].filter(Boolean).join(' ')],
+      ['Regio', d.region],
+      ['Plaats', d.city],
+      ['Postcode', d.postal],
+      ['Coördinaten', (d.latitude!=null) ? d.latitude + ', ' + d.longitude : ''],
+      ['Tijdzone (IP)', d.timezone && d.timezone.id],
+      ['Provider (ISP)', d.connection && d.connection.isp],
+      ['Organisatie', d.connection && d.connection.org],
+      ['ASN', d.connection && d.connection.asn ? 'AS' + d.connection.asn : ''],
+      ['Domein', d.connection && d.connection.domain],
+    ]);
+  }catch(e){
+    rows('geo',[['Status','Kon locatiegegevens niet ophalen. Mogelijk blokkeert een adblocker of firewall de aanvraag.']]);
+  }
+}
+
+function loadBrowser(){
+  const n = navigator, s = screen;
+  const conn = n.connection || n.mozConnection || n.webkitConnection;
+  rows('browser',[
+    ['Browser (user agent)', n.userAgent],
+    ['Platform', (n.userAgentData && n.userAgentData.platform) || n.platform],
+    ['Taal', n.language + (n.languages ? ' (' + n.languages.join(', ') + ')' : '')],
+    ['Tijdzone', Intl.DateTimeFormat().resolvedOptions().timeZone],
+    ['Lokale tijd', new Date().toLocaleString('nl-NL')],
+    ['Schermresolutie', s.width + ' × ' + s.height + ' px'],
+    ['Venstergrootte', innerWidth + ' × ' + innerHeight + ' px'],
+    ['Pixelverhouding', devicePixelRatio],
+    ['Kleurdiepte', s.colorDepth + ' bit'],
+    ['Aanraakpunten', n.maxTouchPoints],
+    ['Processorkernen', n.hardwareConcurrency],
+    ['Geheugen (geschat)', n.deviceMemory ? '≥ ' + n.deviceMemory + ' GB' : ''],
+    ['Online', n.onLine ? 'Ja' : 'Nee'],
+    ['Verbindingstype', conn && conn.effectiveType],
+    ['Downloadsnelheid (schatting)', conn && conn.downlink ? conn.downlink + ' Mbit/s' : ''],
+    ['Do Not Track', n.doNotTrack === '1' ? 'Aan' : 'Uit of onbekend'],
+    ['Cookies toegestaan', n.cookieEnabled ? 'Ja' : 'Nee'],
+    ['Donkere modus', matchMedia('(prefers-color-scheme: dark)').matches ? 'Ja' : 'Nee'],
+    ['Pagina bekeken via', location.protocol],
+  ]);
+}
+
+function loadLocal(){
+  const found = new Set();
+  const pc = new RTCPeerConnection({iceServers:[]});
+  pc.createDataChannel('x');
+  const done = () => {
+    try{ pc.close(); }catch(e){}
+    const list = [...found];
+    rows('local', list.length
+      ? list.map((ip,i)=>['Adres ' + (i+1), ip])
+      : [['Status','Niet zichtbaar. Moderne browsers verbergen dit vaak om privacy-redenen.']]);
+  };
+  pc.onicecandidate = e => {
+    if(!e.candidate){ done(); return; }
+    const m = e.candidate.candidate.match(/([0-9]{1,3}(\.[0-9]{1,3}){3}|[a-f0-9:]{6,})\s+\d+\s+typ/i);
+    if(m && !m[1].endsWith('.local')) found.add(m[1]);
+  };
+  pc.createOffer().then(o=>pc.setLocalDescription(o)).catch(done);
+  setTimeout(done, 2500);
+}
+
+async function run(){
+  $('time').textContent = 'Bijgewerkt om ' + new Date().toLocaleTimeString('nl-NL');
+  loadBrowser();
+  try{ loadLocal(); }catch(e){ rows('local',[['Status','Niet ondersteund in deze browser']]); }
+  const ip = await loadIPs();
+  loadGeo(ip);
+}
+
+document.addEventListener('click', e=>{
+  const b = e.target.closest('.copy');
+  if(!b) return;
+  const txt = $(b.dataset.target).textContent;
+  if(!/[0-9a-f:.]{3,}/i.test(txt) || /Laden|Niet/.test(txt)) return;
+  navigator.clipboard.writeText(txt).then(()=>{
+    const old = b.textContent; b.textContent = 'Gekopieerd'; setTimeout(()=>b.textContent = old, 1200);
+  });
+});
+$('refresh').addEventListener('click', run);
+run();
+</script>
+</body>
+</html>
